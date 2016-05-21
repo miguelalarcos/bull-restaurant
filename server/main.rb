@@ -11,12 +11,12 @@ class AppController < BullServerController
     rmsync $r.table('products').filter('path'=>path)
   end
 
-  def rpc_add_product order_id, product, waiter
+  def rpc_add_product order_id, product, price, waiter
     check order_id, String
     check product, String
     how_many = rsync $r.table('line').filter('order_id'=>order_id, 'product'=>product).count
     if how_many == 0
-      rsync $r.table('line').insert('order_id'=>order_id, 'product'=>product, 'quantity'=>1, 'waiter'=>waiter)
+      rsync $r.table('line').insert('order_id'=>order_id, 'product'=>product, 'quantity'=>1, 'price'=> price, 'waiter'=>waiter)
     else
       rsync $r.table('line').filter('order_id'=>order_id, 'product'=>product).update do |doc|
         {:quantity => doc['quantity'] + 1}
@@ -84,7 +84,6 @@ class AppController < BullServerController
   end
 
   def watch_tables
-    #$r.table('table')
     $r.table('order').filter('status'=>'opened')
   end
 

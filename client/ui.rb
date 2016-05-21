@@ -15,7 +15,7 @@ def format_float_sup_money value, symb
 end
 
 class SelectTable < DisplayList
-  param :table
+  param :set_order, type: Proc
 
   before_mount do
     watch_ 'tables', []
@@ -23,7 +23,7 @@ class SelectTable < DisplayList
 
   def render
     div do
-      SelectInput(options: state.docs.collect{|doc| doc['table']}, on_change: lambda{|v| params.table.value = v})
+      SelectObjectInput(display: 'table', options: state.docs, on_change: lambda{|v| params.set_order v['order_id']})
     end
   end
 end
@@ -72,7 +72,7 @@ class WaiterNotification < DisplayList
     div do
       tables.each do |table|
         div do
-          span{table[1]}
+          span{table[1]}.on(:click){params.table.value=table[1]}
           a(href: '#'){'done'}.on(:click){$controller.task('done', table[0])}
         end
       end
@@ -98,7 +98,7 @@ class ProductMenu < React::Component::Base
       @products.each do |doc|
         a(href: '#'){doc['name']}.on(:click) do
           if doc['is_product']
-            $controller.rpc 'add_product', params.order_id, doc['name'], params.waiter
+            $controller.rpc 'add_product', params.order_id, doc['name'], doc['price'], params.waiter
           else
             @path.value = doc['path']
           end
@@ -108,25 +108,37 @@ class ProductMenu < React::Component::Base
   end
 end
 
+class Total < DisplayDoc
+  param :order_id
+
+  before_mount do
+    watch_ 'order', params.order_id
+  end
+
+  def render
+    span do
+      format_float_sup_money state.total, '€'
+    end
+  end
+end
+
 class WaiterPage < DisplayList
   param :waiter
   param :show
 
   before_mount do
-    @table = RVar.new nil
+    #@table = RVar.new nil
     state.order_id! nil
-    #watch_ 'waiter_table_draft', @table.value, [@table]
-    watch_ 'waiter_table', @table.value, [@table]
+    watch_ 'waiter_table', state.order_id, []
   end
 
   def render
     div(class: params.show ? '': 'no-display') do
       WaiterNotification(key: 'waiter_notification', waiter: params.waiter)
-      SelectTable(table: @table)
+      SelectTable(set_order: lambda{|v| state.order_id! v})
       button{'Nueva mesa'}.on(:click) do
         $controller.rpc('new_table', params.waiter).then {|response| state.order_id! response}
       end
-      #ProducMenu(table: @table.value, waiter: params.waiter)
       ProducMenu(order_id: state.order_id, waiter: params.waiter)
       state.docs.select{|x| x['status'] == 'draft'}.each do |doc|
         div do
@@ -148,8 +160,13 @@ class WaiterPage < DisplayList
           span{doc['product']}
           span{' : '}
           span{doc['quantity']}
+          span{' : '}
+          span{doc['price']}
+          span{' : '}
+          span{(doc['quantity']*doc['price']).to_s}
         end
       end
+      Total(order_id: state.order_id)
     end
   end
 end
