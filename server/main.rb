@@ -37,8 +37,19 @@ class AppController < BullServerController
     end
   end
 
-  def rpc_new_table
-
+  def rpc_new_table waiter
+    check waiter, String
+    orders = rmsync $r.table('order').filter('status'=>'opened')
+    tables = orders.collect{|x| x['table']}.sort
+    new_table = 1
+    for table in tables
+      if new_table != table
+        break
+      end
+      new_table += 1
+    end
+    ret = rsync $r.table('order').insert(status: 'opened', waiter: waiter, table: new_table, datetime: Time.now, total: 0.0)
+    ret['generated_keys'][0]
   end
 
   #def rpc_create_table table
@@ -50,7 +61,7 @@ class AppController < BullServerController
   #end
 
   def task_send_to_kitchen order_id
-    check table, String
+    check order_id, String
     rsync $r.table('line').filter('order_id'=>order_id, 'status'=>'draft').update('status'=>'kitchen')
   end
 
@@ -60,8 +71,11 @@ class AppController < BullServerController
   end
 
   def task_done order_id
-    check table, String
+    check order_id, String
     rsync $r.table('line').filter('order_id'=>order_id, 'status'=>'kitchen_done').update('status'=>'done')
+    lines = rmsync $r.table('line').filter('order_id'=>order_id, 'status'=>'done')
+    total = lines.inject(0.0){|sum, n| sum + n['price']*n['quantity']}
+    rsync $r.table('order').get(order_id).update('status'=>'closed', 'total'=>total)
   end
 
   def watch_waiter_notifications waiter
@@ -70,12 +84,18 @@ class AppController < BullServerController
   end
 
   def watch_tables
-    $r.table('table')
+    #$r.table('table')
+    $r.table('order').filter('status'=>'opened')
   end
 
   def waiter_table_draft order_id
-    check table, String
+    check order_id, String
     $r.table('line').filter('status'=>'draft', 'order_id'=>order_id)
+  end
+
+  def waiter_table order_id
+    check order_id, String
+    $r.table('line').filter('order_id'=>order_id)
   end
 
   def watch_kitchen

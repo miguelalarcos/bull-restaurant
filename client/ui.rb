@@ -3,6 +3,7 @@ require 'reactive-ruby'
 require 'reactive_var'
 require 'validation/validation'
 require 'notification'
+require 'set'
 
 def format_float_sup_money value, symb
   integer, decimal = format_float(value).split('.')
@@ -27,6 +28,7 @@ class SelectTable < DisplayList
   end
 end
 
+=begin
 class CreateTable < React::Component::Base
   param :table
 
@@ -56,6 +58,7 @@ class SelectCreateTable < React::Component::Base
     end
   end
 end
+=end
 
 class WaiterNotification < DisplayList
   param :waiter
@@ -65,10 +68,13 @@ class WaiterNotification < DisplayList
   end
 
   def render
-    tables = state.docs.collect{|x| x['table']}.uniq
+    tables = state.docs.inject(Set.new){|acum, x| acum.add([x['order_id'], x['table']])}.uniq
     div do
       tables.each do |table|
-        div{table}
+        div do
+          span{table[1]}
+          a(href: '#'){'done'}.on(:click){$controller.task('done', table[0])}
+        end
       end
     end
   end
@@ -107,24 +113,40 @@ class WaiterPage < DisplayList
   param :show
 
   before_mount do
-    #@table = RVar.new nil
+    @table = RVar.new nil
     state.order_id! nil
-    watch_ 'waiter_table_draft', @table.value, [@table]
+    #watch_ 'waiter_table_draft', @table.value, [@table]
+    watch_ 'waiter_table', @table.value, [@table]
   end
 
   def render
     div(class: params.show ? '': 'no-display') do
       WaiterNotification(key: 'waiter_notification', waiter: params.waiter)
-      #SelectCreateTable(table: @table)
+      SelectTable(table: @table)
       button{'Nueva mesa'}.on(:click) do
-        $controller.rpc('new_table').then {|response| state.order_id! response}
+        $controller.rpc('new_table', params.waiter).then {|response| state.order_id! response}
       end
       #ProducMenu(table: @table.value, waiter: params.waiter)
       ProducMenu(order_id: state.order_id, waiter: params.waiter)
-      state.docs.each do |doc|
+      state.docs.select{|x| x['status'] == 'draft'}.each do |doc|
         div do
           span{doc['product']}
-          span{' - '}
+          span{' : '}
+          span{doc['quantity']}
+          span{'-'}.on(:click){$controller.rpc('remove_product', state.order_id, doc['product'])}
+        end
+      end
+      state.docs.select{|x| x['status'] == 'kitche_done'}.each do |doc|
+        div do
+          span{doc['product']}
+          span{' : '}
+          span{doc['quantity']}
+        end
+      end
+      state.docs.select{|x| x['status'] == 'done'}.each do |doc|
+        div do
+          span{doc['product']}
+          span{' : '}
           span{doc['quantity']}
         end
       end
