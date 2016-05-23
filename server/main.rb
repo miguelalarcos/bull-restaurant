@@ -19,29 +19,33 @@ class AppController < BullServerController
     true
   end
 
-  def rpc_products path
-    check path, String
-    rmsync $r.table('products').filter(:path=>path)
+  def rpc_products #path
+    #check path, String
+    rmsync $r.table('products') #.filter(:path=>path)
   end
 
-  def rpc_new_table waiter
+  def rpc_new_table waiter, table
     check waiter, String
-    orders = rmsync $r.table('order').filter(:status=>'opened')
-    tables = orders.collect{|x| x['table'].to_i}.sort
-    new_table = 1
-    for table in tables
-      if new_table != table
-        break
-      end
-      new_table += 1
-    end
-    ret = rsync $r.table('order').insert(status: 'opened', waiter: waiter, table: new_table.to_s, datetime: Time.now, total: 0.0)
-    [ret['generated_keys'][0], new_table.to_s]
+    check table, String
+    ret = rsync $r.table('order').insert(status: 'opened', waiter: waiter, table: table, datetime: Time.now, total: 0.0)
+    ret['generated_keys'][0]
+    #orders = rmsync $r.table('order').filter(:status=>'opened')
+    #tables = orders.collect{|x| x['table'].to_i}.sort
+    #new_table = 1
+    #for table in tables
+    #  if new_table != table
+    #    break
+    #  end
+    #  new_table += 1
+    #end
+    #ret = rsync $r.table('order').insert(status: 'opened', waiter: waiter, table: new_table.to_s, datetime: Time.now, total: 0.0)
+    #[ret['generated_keys'][0], new_table.to_s]
   end
 
-  def task_send_to_kitchen order_id
+  def task_send order_id
     check order_id, String
-    rsync $r.table('line').filter(:order_id=>order_id, :status=>'draft').update(:status=>'kitchen')
+    rsync $r.table('line').filter(:order_id=>order_id, :status=>'draft', :scope=>'kitchen').update(:status=>'kitchen')
+    rsync $r.table('line').filter(:order_id=>order_id, :status=>'draft', :scope=>'bar').update(:status=>'bar')
   end
 
   def task_kitchen_line_done line
@@ -54,12 +58,22 @@ class AppController < BullServerController
     rsync $r.table('line').filter(:order_id=>order_id, :status=>'kitchen').update(:status=>'kitchen_done')
   end
 
-  def task_done order_id
-    check order_id, String
-    rsync $r.table('line').filter(:order_id=>order_id, :status=>'kitchen_done').update(:status=>'done')
+  def total order_id
     lines = rmsync $r.table('line').filter(:order_id=>order_id, :status=>'done')
     total = lines.inject(BigDecimal('0')){|sum, n| sum + BigDecimal(n['price'])*BigDecimal(n['quantity'])}
     rsync $r.table('order').get(order_id).update({:total=> total.to_f})
+  end
+
+  def task_bar_done order_id
+    check order_id, String
+    rsync $r.table('line').filter(:order_id=>order_id, :status=>'bar').update(:status=>'done')
+    total order_id
+  end
+
+  def task_done order_id
+    check order_id, String
+    rsync $r.table('line').filter(:order_id=>order_id, :status=>'kitchen_done').update(:status=>'done')
+    total order_id
   end
 
   def task_close_order order_id
@@ -83,6 +97,10 @@ class AppController < BullServerController
 
   def watch_kitchen
     $r.table('line').filter(:status=>'kitchen')
+  end
+
+  def watch_bar
+    $r.table('line').filter(:status=>'bar')
   end
 
 end

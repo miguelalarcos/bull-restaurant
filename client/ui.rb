@@ -15,7 +15,7 @@ def format_float_sup_money value, symb
 end
 
 class SelectTable < DisplayList
-  param :set_order, type: Proc
+  param :set, type: Proc
 
   before_mount do
     watch_ 'tables_opened', []
@@ -23,8 +23,8 @@ class SelectTable < DisplayList
 
   def render
     div do
-      SelectObjectInput(display: 'table', options: state.docs.sort{|a,b| a['table'].to_i <=> b['table'].to_i},
-                        on_change: lambda{|v| params.set_order v['order_id']})
+      SelectObjectInput(display: 'table', options: state.docs.sort{|a,b| a['table'] <=> b['table']},
+                        on_change: lambda{|v| params.set v})
     end
   end
 end
@@ -57,19 +57,21 @@ class ProductMenu < React::Component::Base
   param :order_list
 
   before_mount do
-    path = RVar.new 'root'
-    reactive(path) do
-      $controller.rpc('products', path.value).then do |products|
-        state.products = products
+    #path = RVar.new 'root'
+    #reactive(path) do
+      #$controller.rpc('products', path.value).then do |products|
+      $controller.rpc('products').then do |products|
+        state.products! products
       end
-    end
+    #end
+    state.path = 'root'
   end
 
-  def add_product product, price
+  def add_product product, price, scope
     line = params.order_list.select{|x| x['name']==product}
     if line.empty?
       $controller.insert('line', {:table=>params.table, :order_id=>params.order_id, :product=>product, :quantity=>1,
-                                  :price=> price, :waiter=>params.waiter})
+                                  :price=> price, :waiter=>params.waiter, :scope=>scope})
     else
       $controller.update('line', line[0]['id'], {:quantity=>line[0]['quantity']+1})
     end
@@ -78,12 +80,13 @@ class ProductMenu < React::Component::Base
   def render
     div do
       a(href: '#'){'home'}.on(:click){@path.value = 'root'}
-      state.products.each do |doc|
+      state.products.select{|x| x['path'] == state.path}.each do |doc|
         a(href: '#'){doc['name']}.on(:click) do
           if doc['is_product']
-            add_product doc['name'], doc['price']
+            add_product doc['name'], doc['price'], doc['scope']
           else
-            @path.value = doc['path']
+            #@path.value = doc['path'] + '.' + doc['name']
+            state.path! doc['path'] + '.' + doc['name']
           end
         end
       end
@@ -127,11 +130,12 @@ class WaiterPage < DisplayList
     div(class: params.show ? '': 'no-display') do
       WaiterNotification(key: 'waiter_notification', waiter: params.waiter,
                          set_order: lambda{|v| state.order_id! v})
-      SelectTable(set_order: lambda{|v| state.order_id! v})
+      SelectTable(set: lambda{|v| state.order_id! v['order_id']; state.table! v['table']})
       button{'Nueva mesa'}.on(:click) do
-        $controller.rpc('new_table', params.waiter).then do |response|
-          state.order_id! response[0]
-          state.table! response[1]
+        $controller.rpc('new_table', params.waiter, state.table).then do |response|
+          state.order_id! response
+          #state.order_id! response[0]
+          #state.table! response[1]
         end
       end
       ProducMenu(table:state.table, order_id: state.order_id, waiter: params.waiter,
@@ -144,6 +148,7 @@ class WaiterPage < DisplayList
           span{'-'}.on(:click){remove_product doc['id'], doc['quantity']}
         end
       end
+      button{'Enviar'}.on(:click){$controller.task('send', state.order_id)}
       state.docs.select{|x| x['status'] == 'kitche_done'}.each do |doc|
         div do
           span{doc['product']}
@@ -171,14 +176,15 @@ end
 class KitchenTable < DisplayList
   param :table
   param :docs
+  param :order_id
 
   def render
     div do
+      div do
+        span{params.table}
+        span{'hecho'}.on(:click){$controller.task('kitchen_done', params.order_id)}
+      end
       params.docs.each do |doc|
-        div do
-          span{params.table}
-          span{'hecho'}.on(:click){$controller.task('kitchen_done', doc['order_id'])}
-        end
         div do
           span{doc['product']}
           span{' : '}
@@ -198,10 +204,49 @@ class KitchenPage < DisplayList
   end
 
   def render
-    groups = state.docs.group_by{|x| x['table']}
+    groups = state.docs.group_by{|x| {table: x['table'], order_id: x['order_id']}}
     div(class: params.show ? '': 'no-display') do
       groups.each_pair do |k, docs|
-        KitchenTable(table: k, docs: docs)
+        KitchenTable(table: k[:table], order_id: k[:order_id], docs: docs)
+      end
+    end
+  end
+end
+
+class BarTable < DisplayList
+  param :table
+  param :docs
+  param :order_id
+
+  def render
+    div do
+      div do
+        span{params.table}
+        span{'hecho'}.on(:click){$controller.task('kitchen_done', params.order_id)}
+      end
+      params.docs.each do |doc|
+        div do
+          span{doc['product']}
+          span{' : '}
+          span{doc['quantity']}
+        end
+      end
+    end
+  end
+end
+
+class BarPage < DisplayList
+  param :show
+
+  before_mount do
+    watch_ 'bar', []
+  end
+
+  def render
+    groups = state.docs.group_by{|x| {table: x['table'], order_id: x['order_id']}}
+    div(class: params.show ? '': 'no-display') do
+      groups.each_pair do |k, docs|
+        BarTable(table: k[:table], order_id: k[:order_id], docs: docs)
       end
     end
   end
@@ -219,7 +264,8 @@ class App < React::Component::Base
     div do
       Notification(level: 0)
       HorizontalMenu(page: state.page, set_page: lambda{|v| state.page! v},
-                     options: {:waiter=>'Camarero', :kitchen=>'Cocina'})
+                     options: {:bar=>'Bar', :waiter=>'Camarero', :kitchen=>'Cocina'})
+      BarPage(key: 'bar-page', show: state.page == :bar)
       WaiterPage(key: 'waiter-page', show: state.page == :waiter, waiter: state.user)
       KitchenPage(key: 'kitchen-page', show: state.page == :kitchen)
     end
