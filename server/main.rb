@@ -4,6 +4,7 @@ require 'server/server'
 require 'server/start'
 require 'conf'
 require 'bigdecimal'
+require 'time'
 
 class AppController < BullServerController
 
@@ -15,20 +16,34 @@ class AppController < BullServerController
     true
   end
 
+  def after_insert_line doc
+    puts 'after insert line'
+  end
+
+  def after_update_line doc
+    puts 'after update line'
+  end
+
   def before_delete_line doc
     true
   end
 
   def rpc_products #path
     #check path, String
-    rmsync $r.table('products') #.filter(:path=>path)
+    rmsync $r.table('product') #.filter(:path=>path)
   end
 
   def rpc_new_table waiter, table
     check waiter, String
     check table, String
-    ret = rsync $r.table('order').insert(status: 'opened', waiter: waiter, table: table, datetime: Time.now, total: 0.0)
-    ret['generated_keys'][0]
+    orders = rmsync $r.table('order').filter(:status=>'opened')
+    tables = orders.collect{|x| x['table']}
+    if tables.include? table
+      nil
+    else
+      ret = rsync $r.table('order').insert(status: 'opened', waiter: waiter, table: table, timestamp: Time.now, total: 0.0)
+      ret['generated_keys'][0]
+    end
     #orders = rmsync $r.table('order').filter(:status=>'opened')
     #tables = orders.collect{|x| x['table'].to_i}.sort
     #new_table = 1
@@ -66,13 +81,13 @@ class AppController < BullServerController
 
   def task_bar_done order_id
     check order_id, String
-    rsync $r.table('line').filter(:order_id=>order_id, :status=>'bar').update(:status=>'done')
-    total order_id
+    rsync $r.table('line').filter(:order_id=>order_id, :status=>'bar').update(:status=>'bar_done')
   end
 
-  def task_done order_id
+  def task_done order_id, scope
     check order_id, String
-    rsync $r.table('line').filter(:order_id=>order_id, :status=>'kitchen_done').update(:status=>'done')
+    check scope, Sting
+    rsync $r.table('line').filter(:order_id=>order_id, :status=>scope+'_done').update(:status=>'done')
     total order_id
   end
 
@@ -88,6 +103,15 @@ class AppController < BullServerController
 
   def watch_tables_opened
     $r.table('order').filter(:status=>'opened')
+  end
+
+  def watch_order order_id
+    check order_id, String
+    if order_id.nil?
+      nil
+    else
+      $r.table('order').get(order_id)
+    end
   end
 
   def watch_table order_id
