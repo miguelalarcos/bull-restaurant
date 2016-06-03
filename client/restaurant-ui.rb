@@ -11,7 +11,8 @@ def tree? item
 end
 
 def complements item
-  $items[item]['complements'] || []
+  compl = $items[item]['complements']
+  $items[compl] || []
 end
 
 def price item
@@ -19,53 +20,37 @@ def price item
 end
 
 def steps item
-  $item[item]['steps']
+  $items[item]['steps']
+end
+
+def scope item
+  $items[item]['scope']
 end
 
 # ###
 
-def set_item order_id
-  lambda do |item|
-    $controller.insert('line', {order_id: order_id, item: item, price: price(item), display: display(item)})
-  end
-end
-
-# ###
-
-class MenuTab < React::Component::Base
-
+class MainTab < React::Component::Base
   param :order_id
+  param :table
 
   before_mount do
     clear
   end
 
   def clear
+    state.line_id! nil
     state.menu_id! nil
     state.line_id! nil
-    state.step! nil
+    state.step! 'menu'
+    state.type! 'carta'
   end
 
-  def create_menu item
-    $controller.insert('line', {order_id: params.order_id, menu: true, menu_head: true, item: item, display: display(item)}).then do |menu_id|
-      #$controller.rpc('create_menu', params.order_id, menu_id, steps(item))
-      steps(item).each_with_index do |step, index|
-        $controller.insert('line', {order_id: params.order_id, menu: true, menu_id: menu_id, step: step, index: index})
-      end
-      state.menu_id! menu_id
-    end
-  end
-
-  def focus
-    lambda do |line_id, step|
-      state.line_id! line_id
-      state.step! step
-    end
-  end
-
-  def set_item_menu
+  def set_item
     lambda do |item|
-      $controller.update('line', state.line_id, {item: item, display: display(item)})
+      $controller.insert('line', {table: params.table, order_id: params.order_id, item: item, price: price(item), carta: true,
+                                  display: display(item), timestamp: Time.now, scope: scope(item)}).then do |line_id|
+        state.line_id! line_id
+      end
     end
   end
 
@@ -75,46 +60,94 @@ class MenuTab < React::Component::Base
     end
   end
 
-  def ok
-    lambda do
-      clear
+  def create_menu item
+    $controller.insert('line', {table: params.table, order_id: params.order_id, menu: true, menu_head: true, price: price(item),
+                                item: item, display: display(item), timestamp: Time.now}).then do |menu_id|
+      $controller.rpc('create_menu', params.table, params.order_id, menu_id, steps(item))
+      #steps(item).each_with_index do |step, index|
+      #  $controller.insert('line', {table: params.table, order_id: params.order_id, menu: true, menu_id: menu_id,
+      #                              step: step, index: index, timestamp: Time.now})
+      #end
+      state.menu_id! menu_id
     end
   end
 
-  def cancel
-    lambda do
-      $controller.rpc('remove_menu', state.menu_id)
-      clear
+  def focus
+    lambda do |line_id, step|
+      state.line_id! line_id
+      state.step! step
+      state.type! 'menu'
+    end
+  end
+
+  def set_item_menu
+    lambda do |item|
+      if state.line_id
+        $controller.update('line', state.line_id, {item: item, display: display(item), scope: scope(item)})
+      else
+        create_menu item
+      end
     end
   end
 
   def render
     div do
-      ItemInput(tree_item: 'menus', set_item: lambda{|item| create_menu item}) if !state.step
-      ItemInput(tree_item: state.step, set_item: set_item_menu, set_complements: set_complements) if state.step
-      MenuInput(menu_id: state.menu_id, focus: focus, ok: ok) if state.menu_id
+      a(href: '#'){'Carta'}.on(:click){state.type! 'carta'}
+      a(href: '#'){'Menu'}.on(:click){state.type! 'menu'}
+      br
+      ItemInput(tree_item: 'carta', set_item: set_item, set_complements: set_complements) if state.type == 'carta'
+      ItemInput(tree_item: state.step, set_item: set_item_menu, set_complements: set_complements) if state.type == 'menu'
+      ListItems(order_id: params.order_id, focus: focus)
     end
   end
 end
 
-class MenuInput < DisplayList
-  param :menu_id
-  param :focus, type: Proc
-  param :ok, type: Proc
-  param :cancel, type: Proc
+class ListItems < DisplayList
+
+  param :order_id
+  param :focus
 
   before_mount do
-    watch_ 'menu', params.menu_id, []
+    watch_ 'order', params.order_id, []
   end
 
   def render
+    menu = state.docs.select{|x| x['menu']}
+    menu_grouped = menu.group_by{|x| x['menu_id']}
+    carta = state.docs.select{|x| x['carta']}
+    carta_grouped = carta.group_by{|x| {display: x['display'], complements: x['complements']} }
     div do
-      state.docs.select{|x| !x['menu_head']}.sort{|a, b| a['index'] <=> b['index']}.each do |line|
-        div{line['display'] || 'click'}.on(:click){params.focus line['id'], line['step']}
+      menu_grouped.each_pair do |k, v|
+        head = state.docs.select{|x| x['id'] == k}[0]
+        MenuInput(head: head, data: v, focus: focus)
+      end
+      carta_grouped.each_pair do |k, v|
+        span{k[:display]}
+        span(k[:complements])
+        span{v.length.to_s}
+        span{'-'}.on(:click) do
+          line_id = v[0]['id']
+          $controller.delete('line', line_id)
+        end
+      end
+    end
+  end
+
+end
+
+class MenuInput
+
+  param :head
+  param :data
+  param :focus, type: Proc
+
+  def render
+    div do
+      div{params.head['display']}
+      params.data.sort{|a, b| a['index'] <=> b['index']}.each do |line|
+        div(class: 'menu-input'){line['display']}.on(:click){params.focus line['id'], line['step']}
         div{line['complements']}
       end
-      div{'Ok'}.on(:click){params.ok}
-      div{'Cancelar'}.on(:click){params.cancel}
     end
   end
 end
