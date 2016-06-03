@@ -48,7 +48,7 @@ class MainTab < React::Component::Base
   def set_item
     lambda do |item|
       $controller.insert('line', {table: params.table, order_id: params.order_id, item: item, price: price(item), carta: true,
-                                  display: display(item), timestamp: Time.now, scope: scope(item)}).then do |line_id|
+                                  display: display(item), timestamp: Time.now, status: 'draft', scope: scope(item)}).then do |line_id|
         state.line_id! line_id
       end
     end
@@ -62,11 +62,11 @@ class MainTab < React::Component::Base
 
   def create_menu item
     $controller.insert('line', {table: params.table, order_id: params.order_id, menu: true, menu_head: true, price: price(item),
-                                item: item, display: display(item), timestamp: Time.now}).then do |menu_id|
+                                item: item, display: display(item), status: 'draft', timestamp: Time.now}).then do |menu_id|
       $controller.rpc('create_menu', params.table, params.order_id, menu_id, steps(item))
       #steps(item).each_with_index do |step, index|
       #  $controller.insert('line', {table: params.table, order_id: params.order_id, menu: true, menu_id: menu_id,
-      #                              step: step, index: index, timestamp: Time.now})
+      #                              step: step, index: index, status: 'draft', timestamp: Time.now})
       #end
       state.menu_id! menu_id
     end
