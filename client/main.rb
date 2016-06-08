@@ -1,6 +1,6 @@
 require 'opal'
 require 'client'
-require 'ui'
+require 'administrative-ui'
 
 $controller = BullClientController.new
 $controller.start App

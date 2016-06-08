@@ -97,18 +97,18 @@ class MainTab < React::Component::Base
       br
       ItemInput(tree_item: 'carta', set_item: set_item, set_complements: set_complements) if state.type == 'carta'
       ItemInput(tree_item: state.step, set_item: set_item_menu, set_complements: set_complements) if state.type == 'menu'
-      ListItems(order_id: params.order_id, focus: focus)
+      ListItemsDraft(order_id: params.order_id, focus: focus)
     end
   end
 end
 
-class ListItems < DisplayList
+class ListItemsDraft < DisplayList
 
   param :order_id
   param :focus
 
   before_mount do
-    watch_ 'order', params.order_id, []
+    watch_ 'table_draft', params.order_id, []
   end
 
   def render
@@ -130,9 +130,36 @@ class ListItems < DisplayList
           $controller.delete('line', line_id)
         end
       end
+      div{'Enviar'}.on(:click){$controller.task('send')}
     end
   end
+end
 
+class ListItemsSent < DisplayList
+
+  param :order_id
+
+  before_mount do
+    watch_ 'table_sent', params.order_id, []
+  end
+
+  def render
+    grouped_post = state.docs.group_by{|x| x['sent_code']}
+    div do
+      grouped_post.each_pair do |key, value|
+        div(class: 'sent-post') do
+          grouped = value.group_by{|x| x['display']}
+          grouped.each_pair do |k, lines|
+            div do
+              span{k}
+              span{lines.length.to_s}
+            end
+          end
+          div{'Hecho'}.on(:click){$controller.task('done', key)}
+        end
+      end
+    end
+  end
 end
 
 class MenuInput
@@ -189,3 +216,25 @@ class ItemInput < React::Component::Base
   end
 end
 
+class App < React::Component::Base
+
+  before_mount do
+    state.user! 'camarero' #nil
+    state.roles! []
+    state.page! 'waiter'
+    $controller.rpc('items').then do |doc|
+      $items = doc
+    end
+  end
+
+  def render
+    div do
+      Notification(level: 0)
+      HorizontalMenu(page: state.page, set_page: lambda{|v| state.page! v},
+                     options: {:bar=>'Bar', :waiter=>'Camarero', :kitchen=>'Cocina'})
+      #BarPage(key: 'bar-page', show: state.page == :bar)
+      WaiterPage(key: 'waiter-page', show: state.page == :waiter, waiter: state.user)
+      #KitchenPage(key: 'kitchen-page', show: state.page == :kitchen)
+    end
+  end
+end

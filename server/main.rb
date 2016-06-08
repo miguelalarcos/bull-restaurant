@@ -5,6 +5,7 @@ require 'server/start'
 require 'conf'
 require 'bigdecimal'
 require 'time'
+require 'validation/validation-item'
 
 class AppController < BullServerController
 
@@ -13,6 +14,11 @@ class AppController < BullServerController
     @sent_code = 0
   end
 
+  def before_update_item doc
+    true # ValidateItem.validate doc
+  end
+
+=begin
   def before_insert_line doc
     true
   end
@@ -33,27 +39,23 @@ class AppController < BullServerController
     true
   end
 
-=begin
-  def rpc_products
-    #check path, String
-    rmsync $r.table('product')
+  def rpc_items
+    rsync $r.table('item').get('0')
   end
-=end
 
   def sent_code
     @sent_code += 1
-    @sent_code.to_s
   end
 
   def task_send order_id
     check order_id, String
-    rsync $r.table('line').filter(:order_id=>order_id, :status=>'draft').update(:status=>'sent'+sent_code)
+    rsync $r.table('line').filter(:order_id=>order_id, :status=>'draft').update(:status=>'sent', sent_code: sent_code)
   end
 
   def task_done order_id, code
     check order_id, String
     check code, String
-    rsync $r.table('line').filter(:order_id=>order_id, :status=>code).update(:status=>'done')
+    rsync $r.table('line').filter(:order_id=>order_id, :status=>'sent', :sent_code=>code).update(:status=>'done')
   end
 
   def total order_id
@@ -76,10 +78,16 @@ class AppController < BullServerController
     end
   end
 
-  def watch_table order_id
+  def watch_table_draft order_id
     check order_id, String
-    $r.table('line').filter(:order_id=>order_id)
+    $r.table('line').filter(:order_id=>order_id, status: 'draft')
   end
+
+  def watch_table_sent order_id
+    check order_id, String
+    $r.table('line').filter(:order_id=>order_id, status: 'sent')
+  end
+=end
 
 end
 
