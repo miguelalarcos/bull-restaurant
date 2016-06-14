@@ -14,81 +14,36 @@ class AppController < BullServerController
     @sent_code = 0
   end
 
-  def before_update_item doc
-    true # ValidateItem.validate doc
+  def restaurante
+    'restaurante-101'
+    #@user_doc['restaurant']
   end
 
-=begin
-  def before_insert_line doc
-    true
+  def before_insert_item doc
+    doc[:restaurant] = restaurante
+    ValidateItem.validate doc
   end
 
-  def before_update_line old, new, merged
-    true
-  end
-
-  def after_insert_line doc
-    puts 'after insert line'
-  end
-
-  def after_update_line doc
-    puts 'after update line'
-  end
-
-  def before_delete_line doc
-    true
+  def before_update_item old, new, merged
+    merged[:restaurant] = restaurante
+    ValidateItem.validate merged
   end
 
   def rpc_items
-    rsync $r.table('item').get('0')
+    rmsync $r.table('item').filter({restaurant: restaurante})
   end
 
-  def sent_code
-    @sent_code += 1
-  end
-
-  def task_send order_id
-    check order_id, String
-    rsync $r.table('line').filter(:order_id=>order_id, :status=>'draft').update(:status=>'sent', sent_code: sent_code)
-  end
-
-  def task_done order_id, code
-    check order_id, String
-    check code, String
-    rsync $r.table('line').filter(:order_id=>order_id, :status=>'sent', :sent_code=>code).update(:status=>'done')
-  end
-
-  def total order_id
-    lines = rmsync $r.table('line').filter(:order_id=>order_id, :status=>'done')
-    total = lines.inject(BigDecimal('0')){|sum, n| sum + BigDecimal(n['price'])*BigDecimal(n['quantity'])}
-    rsync $r.table('order').get(order_id).update({:total=> total.to_f})
-  end
-
-  def task_close_order order_id
-    check order_id, String
-    rsync $r.table('order').get(order_id).update({:status=> 'closed'})
-  end
-
-  def watch_order order_id
-    check order_id, String
-    if order_id.nil?
-      nil
-    else
-      $r.table('order').get(order_id)
+  def watch_items_by_pattern pattern
+    if pattern.length >= 2
+      $r.table('item').filter{|doc|
+        doc['type'].eq('item') & doc['restaurant'].eq(restaurante) & doc['code'].match("(?i)#{pattern}")
+      }
     end
   end
 
-  def watch_table_draft order_id
-    check order_id, String
-    $r.table('line').filter(:order_id=>order_id, status: 'draft')
+  def watch_groupers
+    $r.table('item').filter({restaurant: restaurante, type: 'groupers'})
   end
-
-  def watch_table_sent order_id
-    check order_id, String
-    $r.table('line').filter(:order_id=>order_id, status: 'sent')
-  end
-=end
-
 end
 
 start AppController
