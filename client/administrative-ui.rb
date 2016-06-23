@@ -9,14 +9,15 @@ class TextArea2Array < React::Component::Base
   param :on_change, type: Proc
 
   before_mount do
-    state.value! ''
+    state.value! (params.data || []).join "\n"
   end
 
   def render
-    txt = params.data.join "\n"
+    #data = params.data || []
+    #txt = data.join "\n"
     div do
-      MultiLineInput(value: txt, on_change: lambda{|v| state.value! v})
-      button{'Guardar'}.on(:click){params.on_change state.value.split("\n")}
+      MultiLineInput(value: state.value, on_change: lambda{|v| state.value! v})
+      button{'Set'}.on(:click){params.on_change state.value.split("\n")}
     end
   end
 end
@@ -25,14 +26,21 @@ class EditGrouper < React::Component::Base
   param :doc
 
   before_mount do
-    state.display! nil
-    state.items! []
+    state.display! params.doc['display']
+    state.items! params.doc['items']
+  end
+
+  def grouper
+    {display: state.display, items: state.items}
   end
 
   def render
     div do
       div{StringInput(placeholder: 'display', value: state.display || params.doc['display'], on_change: lambda{|v| state.display! v})}
       div{TextArea2Array(data: params.doc['items'], on_change: lambda{|v| state.items! v})}
+      div{button{'Guardar'}.on(:click) do
+        $controller.update('item',  params.doc['id'], grouper)
+      end}
     end
   end
 end
@@ -135,59 +143,162 @@ class ItemAdministration < DisplayList
   end
 end
 
-class ItemInput < React::Component::Base
+class WaiterPage < React::Component::Base
+
   before_mount do
-    $controller.rpc('items').then do |docs|
-      print docs
-    end
+    @order = RVar.new nil
+    state.table! nil
+    #state.table_tmp! nil
+  end
+
+  def item_clicked item
+    $controller.insert('line', {order_id: @order.value, type: 'carta', code: item['code'], status: 'draft',
+                                display: item['display'], price: item['price']}) unless @order.value.nil?
   end
 
   def render
     div do
-      'Item Input'
+      h1{state.table}
+      #StringInput(value: state.table_tmp, on_change: lambda{|v| state.table_tmp! v})
+      #button{'Ir'}.on(:click) do
+      #  $controller.rpc('get_order_from_table', state.table_tmp).then do |order_id|
+      #    state.table! state.table_tmp
+      #    @order.value = order_id
+      #  end
+      #end
+      Tables(clicked: lambda{|order_id, table| @order.value = order_id; state.table! table})
+      #ItemInput(item_clicked: lambda{|x| item_clicked x})
+      #DraftItemsArray(order: @order)
     end
   end
 end
 
-=begin
-class Item < React::Component::Base
-  param :data
-  param :click, type: Proc
+class Tables < DisplayList
+
+  param :clicked, type: Proc
+
+  before_mount do
+    watch_ 'tables'
+    state.show! true
+  end
+
+  def occupied
+    state.docs.inject({}) do |hash, x|
+      hash[x['table']] = x['id']
+      hash
+    end
+  end
+
+  def occupied_class tables, table
+    if tables[table].nil?
+      'table-green'
+    else
+      'table-red'
+    end
+  end
 
   def render
-    span(style: {backgroundcolor: params.data['backgroundcolor'], color: params.data['color']}) do
-      params.data['display']
-    end.on(:click) do
-      params.click params.data['code']
+    tables = occupied
+    div do
+      div{'Mesas'}.on(:click){state.show! !state.show}
+      div do
+        ['1', '2', '3'].each do |table|
+          span(class: occupied_class(tables, table)){table}.on(:click) do
+            if tables[table].nil?
+              $controller.insert('order', {active: true, table: table}).then do |order_id|
+                state.show! false
+                params.clicked order_id, table
+              end
+            else
+              state.show! false
+              params.clicked tables[table], table
+            end
+          end
+        end
+      end if state.show
     end
   end
 end
 
-class FinalView < React::Component::Base
-  param :data
+class ItemInput < React::Component::Base
+  param :item_clicked, type: Proc
 
   before_mount do
     state.path! 'root'
-  end
-
-  def click v
-    if params.data[v]['type'] == 'grouper'
-      state.path! v
+    @items = {}
+    $controller.rpc('items').then do |docs|
+      docs.each do |x|
+        @items[x['code']] = x
+      end
     end
   end
 
+  def items path
+    @items[path]['items']
+  end
+
+  def display code
+    @items[code]['display']
+  end
+
+  def style code
+    {'backgroundColor'=>@items[code]['background-color'], 'color'=>@items[code]['color']}
+  end
+
+  def grouper? code
+    @items[code]['type'] == 'grouper'
+  end
+
   def render
-    gr = params.data[state.path]
-    items = gr['items'] || []
-    div(class: 'flex-container') do
-      Item(data: params.data['root'], click: lambda{|v| click v})
-      items.each do |item|
-        Item(data: params.data[item], click: lambda{|v| click v})
+    div do
+      span{'Inicio'}.on(:click) do
+        state.path! 'root'
+      end
+      items(state.path).each do |item_code|
+        span(style: style(item_code)){display(item_code)}.on(:click) do
+          if grouper?(item_code)
+            state.path! item_code
+          else
+            params.item_clicked @items[item_code]
+          end
+        end
       end
     end
   end
 end
-=end
+
+class DraftItemsArray < DisplayList
+
+  param :order
+
+  before_mount do
+    watch_ 'table_draft', params.order
+  end
+
+  def render
+    gr = state.docs.select{|x| x['carta']}.group_by{|x| {display: x['display']}}
+    div do
+      table do
+        tr do
+          th{'Item'}
+          th{'Cantidad'}
+          th{' '}
+        end
+        gr.each_pair do |k, v|
+          tr do
+            td{k[:display]}
+            td{v.length.to_s}
+            td{'-'}.on(:click) do
+              line_id = v[0]['id']
+              $controller.delete('line', line_id)
+            end
+          end
+        end
+      end
+      div{'Enviar'}#.on(:click){$controller.task('send')}
+    end
+  end
+end
 
 class Administration < React::Component::Base
 
@@ -195,7 +306,7 @@ class Administration < React::Component::Base
     div(class: 'flex-container') do
       ItemAdministration()
       GrouperAdministration()
-      ItemInput()
+      WaiterPage()
     end
   end
 end

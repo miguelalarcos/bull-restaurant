@@ -9,6 +9,10 @@ class ValidateItem
   end
 
   def self.validate doc
-    self.validate_price(doc[:price], doc) && self.validate_display(doc[:display], doc)
+    if doc[:type] == 'item'
+      self.validate_price(doc[:price], doc) && self.validate_display(doc[:display], doc)
+    else
+      true
+    end
   end
 end

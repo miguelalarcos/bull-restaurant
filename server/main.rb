@@ -9,11 +9,6 @@ require 'validation/validation-item'
 
 class AppController < BullServerController
 
-  def initialize ws, conn
-    super ws, conn
-    @sent_code = 0
-  end
-
   def restaurante
     'restaurante-101'
     #@user_doc['restaurant']
@@ -42,7 +37,59 @@ class AppController < BullServerController
   end
 
   def watch_groupers
-    $r.table('item').filter({restaurant: restaurante, type: 'groupers'})
+    $r.table('item').filter({restaurant: restaurante, type: 'grouper'})
+  end
+
+  def before_insert_order doc
+    doc[:restaurant] = restaurante
+    doc[:timestamp] = Time.now
+    doc[:total] = 0.0
+    true
+  end
+
+  def before_insert_line doc
+    doc[:restaurant] = restaurante
+    true
+  end
+
+  def after_insert_line doc
+    price = doc[:price]
+    order_id = doc[:order_id]
+    rsync $r.table('order').get(order_id).update do |order|
+      {:total => order['total'] + price}
+    end
+  end
+
+  def before_delete_line doc
+    true
+  end
+
+  def after_delete_line doc
+    price = doc[:price]
+    order_id = doc[:order_id]
+    rsync $r.table('order').get(order_id).update do |order|
+      {:total => order['total'] - price}
+    end
+  end
+
+  def watch_tables
+    $r.table('order').filter({restaurant: restaurante, active: true})
+  end
+
+  #def get_order_from_table table
+  #  check table, String
+  #  doc = get_unique $r.table('order').filter({restaurant: restaurante, active: true, table: table})
+  #  if doc.nil?
+  #    ret = rsync $r.table('order').insert({restaurant: restaurante, active: true, table: table, timestamp: Time.now})
+  #    ret['generated_keys'][0]
+  #  else
+  #    doc[:id]
+  #  end
+  #end
+
+  def watch_table_draft order_id
+    check order_id, String
+    $r.table('line').filter({restaurant: restaurante, status: 'draft', order_id: order_id})
   end
 end
 
