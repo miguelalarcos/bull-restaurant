@@ -55,9 +55,10 @@ class AppController < BullServerController
   def after_insert_line doc
     price = doc[:price]
     order_id = doc[:order_id]
-    rsync $r.table('order').get(order_id).update do |order|
+    pred = $r.table('order').get(order_id).update do |order|
       {:total => order['total'] + price}
     end
+    rsync pred
   end
 
   def before_delete_line doc
@@ -67,9 +68,11 @@ class AppController < BullServerController
   def after_delete_line doc
     price = doc[:price]
     order_id = doc[:order_id]
-    rsync $r.table('order').get(order_id).update do |order|
+    print 'ORDER ID:', order_id, doc
+    pred = $r.table('order').get(order_id).update do |order|
       {:total => order['total'] - price}
     end
+    rsync pred
   end
 
   def watch_tables

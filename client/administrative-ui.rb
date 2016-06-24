@@ -159,16 +159,9 @@ class WaiterPage < React::Component::Base
   def render
     div do
       h1{state.table}
-      #StringInput(value: state.table_tmp, on_change: lambda{|v| state.table_tmp! v})
-      #button{'Ir'}.on(:click) do
-      #  $controller.rpc('get_order_from_table', state.table_tmp).then do |order_id|
-      #    state.table! state.table_tmp
-      #    @order.value = order_id
-      #  end
-      #end
       Tables(clicked: lambda{|order_id, table| @order.value = order_id; state.table! table})
-      #ItemInput(item_clicked: lambda{|x| item_clicked x})
-      #DraftItemsArray(order: @order)
+      ItemInput(item_clicked: lambda{|x| item_clicked x})
+      DraftItemsArray(order: @order)
     end
   end
 end
@@ -197,10 +190,19 @@ class Tables < DisplayList
     end
   end
 
+  def animation
+    if state.show
+      'animated fadeInDown'
+    else
+      'animated fadeOutUp'
+    end
+  end
+
   def render
     tables = occupied
     div do
       div{'Mesas'}.on(:click){state.show! !state.show}
+      #div(class: animation) do
       div do
         ['1', '2', '3'].each do |table|
           span(class: occupied_class(tables, table)){table}.on(:click) do
@@ -234,7 +236,11 @@ class ItemInput < React::Component::Base
   end
 
   def items path
-    @items[path]['items']
+    if @items[path].nil?
+      []
+    else
+      @items[path]['items']
+    end
   end
 
   def display code
@@ -276,7 +282,7 @@ class DraftItemsArray < DisplayList
   end
 
   def render
-    gr = state.docs.select{|x| x['carta']}.group_by{|x| {display: x['display']}}
+    gr = state.docs.select{|x| x['type'] == 'carta'}.group_by{|x| {display: x['display']}}
     div do
       table do
         tr do
